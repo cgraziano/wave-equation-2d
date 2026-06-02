@@ -64,6 +64,9 @@ jobs:
       - name: Run simulator (generate frames.js)
         run: dotnet run --project simulator/Simulator.csproj --configuration Release --no-build -- web/frames.js
 
+      - name: Validate frames.js syntax
+        run: node --check web/frames.js
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 

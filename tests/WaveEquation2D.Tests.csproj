@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\src\WaveEquation2D.csproj" />
+    <ProjectReference Include="..\simulator\Simulator.csproj" />
   </ItemGroup>
 
 </Project>
