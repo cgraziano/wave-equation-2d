@@ -16,19 +16,53 @@
       align-items: center;
       min-height: 100vh;
       padding: 24px 16px;
-      gap: 20px;
+      gap: 18px;
     }
 
     h1 {
-      font-size: 1.2rem;
+      font-size: 1.1rem;
       font-weight: 400;
       letter-spacing: 0.12em;
       color: #aaa;
       text-transform: uppercase;
     }
 
+    /* Scenario selector tabs */
+    #scenario-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .tab-btn {
+      background: #111;
+      border: 1px solid #2a2a2a;
+      color: #777;
+      padding: 6px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.8rem;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+    .tab-btn:hover { border-color: #444; color: #bbb; }
+    .tab-btn.active {
+      border-color: #4a90d9;
+      color: #4a90d9;
+      background: #0d1a2a;
+    }
+
+    /* Description text */
+    #description {
+      max-width: 560px;
+      font-size: 0.76rem;
+      color: #555;
+      line-height: 1.6;
+      text-align: center;
+    }
+
     #canvas-wrap {
-      position: relative;
       border: 1px solid #2a2a2a;
       box-shadow: 0 0 40px rgba(80, 160, 255, 0.08);
     }
@@ -39,13 +73,12 @@
       image-rendering: crisp-edges;
     }
 
-    /* colour-bar legend */
     #legend {
       display: flex;
       align-items: center;
       gap: 10px;
       font-size: 0.72rem;
-      color: #666;
+      color: #555;
     }
     #legend-bar {
       width: 160px;
@@ -54,10 +87,26 @@
       background: linear-gradient(to right, #0060ff, #000, #ff4400);
     }
 
+    #scrubber-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      max-width: 560px;
+    }
+    #scrubber-wrap input { flex: 1; accent-color: #4a90d9; }
+
+    #frame-label {
+      font-size: 0.75rem;
+      color: #444;
+      min-width: 72px;
+      text-align: right;
+    }
+
     #controls {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 14px;
       flex-wrap: wrap;
       justify-content: center;
     }
@@ -81,39 +130,23 @@
       align-items: center;
       gap: 8px;
       font-size: 0.8rem;
-      color: #888;
+      color: #777;
     }
-
-    input[type=range] {
-      width: 120px;
-      accent-color: #4a90d9;
-    }
-
-    #scrubber-wrap {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      width: 100%;
-      max-width: 520px;
-    }
-    #scrubber-wrap input { flex: 1; }
-
-    #frame-label {
-      font-size: 0.75rem;
-      color: #555;
-      min-width: 70px;
-      text-align: right;
-    }
+    label input[type=range] { width: 110px; accent-color: #4a90d9; }
 
     #status {
       font-size: 0.72rem;
-      color: #444;
+      color: #3a3a3a;
     }
   </style>
 </head>
 <body>
 
-  <h1>Wave Equation — Double Slit</h1>
+  <h1>Wave Equation Simulator</h1>
+
+  <div id="scenario-tabs"></div>
+
+  <p id="description"></p>
 
   <div id="canvas-wrap">
     <canvas id="canvas"></canvas>
@@ -133,10 +166,7 @@
   <div id="controls">
     <button id="btn-play">▶ Play</button>
     <button id="btn-restart">↺ Restart</button>
-    <label>
-      Speed
-      <input type="range" id="speed" min="1" max="10" value="3" />
-    </label>
+    <label>Speed <input type="range" id="speed" min="1" max="10" value="3" /></label>
   </div>
 
   <div id="status">Loading simulation data…</div>
@@ -144,74 +174,79 @@
   <script src="frames.js"></script>
   <script>
     (() => {
-      // ------------------------------------------------------------------
-      // Sanity-check that frames.js loaded correctly
-      // ------------------------------------------------------------------
-      if (typeof WAVE_DATA === 'undefined') {
+      if (typeof SCENARIOS === 'undefined') {
         document.getElementById('status').textContent =
           'Error: frames.js not found. Run the simulator first.';
         return;
       }
 
-      const { width, height, frameCount, frames } = WAVE_DATA;
-
-      // ------------------------------------------------------------------
-      // Canvas setup — scale up for visibility (each grid cell = SCALE px)
-      // ------------------------------------------------------------------
-      const SCALE  = Math.min(5, Math.floor(560 / Math.max(width, height)));
+      // ----------------------------------------------------------------
+      // Canvas + colour table setup
+      // ----------------------------------------------------------------
+      const CANVAS_SIZE = 560;
       const canvas = document.getElementById('canvas');
-      canvas.width  = width  * SCALE;
-      canvas.height = height * SCALE;
-      const ctx = canvas.getContext('2d');
-
-      // Pre-decode all base64 frames into Uint8Arrays once at load time
-      const decoded = frames.map(b64 => {
-        const bin = atob(b64);
-        const buf = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-        return buf;
-      });
-
-      // Pre-build ImageData buffer
-      const imgData = ctx.createImageData(width * SCALE, height * SCALE);
-      const pixels  = imgData.data; // RGBA, length = w*SCALE * h*SCALE * 4
-
-      // ------------------------------------------------------------------
-      // Colour mapping: byte 128 → black, 255 → red, 1 → blue
-      // ------------------------------------------------------------------
-      function byteToRGB(b) {
-        const v = b - 128; // -127 .. +127
-        if (v >= 0) {
-          // positive: black → bright orange-red
-          const t = v / 127;
-          return [Math.round(255 * t), Math.round(80 * t * (1 - t * 0.5)), 0];
-        } else {
-          // negative: black → bright blue
-          const t = -v / 127;
-          return [0, Math.round(80 * t * (1 - t * 0.5)), Math.round(255 * t)];
-        }
-      }
+      const ctx    = canvas.getContext('2d');
 
       // Cache all 256 colours up front
-      const colourTable = new Array(256);
-      for (let i = 0; i < 256; i++) colourTable[i] = byteToRGB(i);
+      const colourTable = new Uint8Array(256 * 3);
+      for (let b = 0; b < 256; b++) {
+        const v = b - 128;           // -127 .. +127
+        const t = Math.abs(v) / 127;
+        const mid = Math.round(60 * t * (1 - t * 0.4));
+        const hi  = Math.round(255 * t);
+        const idx = b * 3;
+        if (v >= 0) { colourTable[idx]=hi; colourTable[idx+1]=mid; colourTable[idx+2]=0;  }
+        else        { colourTable[idx]=0;  colourTable[idx+1]=mid; colourTable[idx+2]=hi; }
+      }
 
-      // ------------------------------------------------------------------
-      // Render a single frame index onto the canvas
-      // ------------------------------------------------------------------
-      function renderFrame(frameIdx) {
-        const buf = decoded[frameIdx];
+      // ----------------------------------------------------------------
+      // Per-scenario decoded frame cache
+      // ----------------------------------------------------------------
+      const decodedCache = {};
+      function getDecoded(key) {
+        if (decodedCache[key]) return decodedCache[key];
+        const sc = SCENARIOS[key];
+        decodedCache[key] = sc.frames.map(b64 => {
+          const bin = atob(b64);
+          const buf = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+          return buf;
+        });
+        return decodedCache[key];
+      }
+
+      // ----------------------------------------------------------------
+      // Render
+      // ----------------------------------------------------------------
+      let imgData = null;
+
+      function renderFrame(key, frameIdx) {
+        const sc      = SCENARIOS[key];
+        const decoded = getDecoded(key);
+        const { width, height } = sc;
+        const scale   = Math.floor(CANVAS_SIZE / Math.max(width, height));
+
+        if (canvas.width !== width * scale || canvas.height !== height * scale) {
+          canvas.width  = width  * scale;
+          canvas.height = height * scale;
+          imgData = ctx.createImageData(canvas.width, canvas.height);
+          imgData.data.fill(255); // alpha
+        }
+
+        const buf    = decoded[frameIdx];
+        const pixels = imgData.data;
+
         for (let y = 0; y < height; y++) {
           for (let x = 0; x < width; x++) {
-            const [r, g, b] = colourTable[buf[y * width + x]];
-            // Fill SCALE×SCALE block of pixels
-            for (let dy = 0; dy < SCALE; dy++) {
-              for (let dx = 0; dx < SCALE; dx++) {
-                const px = ((y * SCALE + dy) * width * SCALE + (x * SCALE + dx)) * 4;
-                pixels[px]     = r;
-                pixels[px + 1] = g;
-                pixels[px + 2] = b;
-                pixels[px + 3] = 255;
+            const ci  = buf[y * width + x] * 3;
+            const r = colourTable[ci], g = colourTable[ci+1], b = colourTable[ci+2];
+            for (let dy = 0; dy < scale; dy++) {
+              for (let dx = 0; dx < scale; dx++) {
+                const px = ((y*scale+dy) * canvas.width + (x*scale+dx)) * 4;
+                pixels[px]   = r;
+                pixels[px+1] = g;
+                pixels[px+2] = b;
+                // alpha already 255
               }
             }
           }
@@ -219,38 +254,37 @@
         ctx.putImageData(imgData, 0, 0);
       }
 
-      // ------------------------------------------------------------------
+      // ----------------------------------------------------------------
       // Playback state
-      // ------------------------------------------------------------------
-      let currentFrame = 0;
-      let playing      = false;
-      let lastTime     = 0;
+      // ----------------------------------------------------------------
+      let currentScenario = Object.keys(SCENARIOS)[0];
+      let currentFrame    = 0;
+      let playing         = false;
+      let lastTime        = 0;
 
-      const scrubber   = document.getElementById('scrubber');
-      const frameLabel = document.getElementById('frame-label');
-      const btnPlay    = document.getElementById('btn-play');
+      const scrubber    = document.getElementById('scrubber');
+      const frameLabel  = document.getElementById('frame-label');
+      const btnPlay     = document.getElementById('btn-play');
       const speedSlider = document.getElementById('speed');
-      const status     = document.getElementById('status');
+      const status      = document.getElementById('status');
+      const descEl      = document.getElementById('description');
 
-      scrubber.max = frameCount - 1;
+      function msPerFrame() { return 220 - Number(speedSlider.value) * 20; }
 
       function setFrame(idx) {
-        currentFrame = Math.max(0, Math.min(idx, frameCount - 1));
-        renderFrame(currentFrame);
+        const sc = SCENARIOS[currentScenario];
+        currentFrame = Math.max(0, Math.min(idx, sc.frameCount - 1));
+        renderFrame(currentScenario, currentFrame);
         scrubber.value = currentFrame;
-        frameLabel.textContent = `frame ${currentFrame + 1} / ${frameCount}`;
-      }
-
-      function msPerFrame() {
-        // speed 1 → 200ms/frame,  speed 10 → 20ms/frame
-        return 220 - Number(speedSlider.value) * 20;
+        frameLabel.textContent = `frame ${currentFrame + 1} / ${sc.frameCount}`;
       }
 
       function tick(now) {
         if (!playing) return;
         if (now - lastTime >= msPerFrame()) {
           lastTime = now;
-          if (currentFrame >= frameCount - 1) {
+          const sc = SCENARIOS[currentScenario];
+          if (currentFrame >= sc.frameCount - 1) {
             playing = false;
             btnPlay.textContent = '▶ Play';
             btnPlay.classList.remove('active');
@@ -264,7 +298,8 @@
       function togglePlay() {
         playing = !playing;
         if (playing) {
-          if (currentFrame >= frameCount - 1) setFrame(0);
+          const sc = SCENARIOS[currentScenario];
+          if (currentFrame >= sc.frameCount - 1) setFrame(0);
           btnPlay.textContent = '⏸ Pause';
           btnPlay.classList.add('active');
           lastTime = performance.now();
@@ -275,6 +310,44 @@
         }
       }
 
+      function loadScenario(key) {
+        playing = false;
+        btnPlay.textContent = '▶ Play';
+        btnPlay.classList.remove('active');
+
+        currentScenario = key;
+        const sc = SCENARIOS[key];
+        scrubber.max = sc.frameCount - 1;
+        descEl.textContent = sc.description;
+        imgData = null; // force canvas resize
+
+        // Update tab styles
+        document.querySelectorAll('.tab-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.key === key);
+        });
+
+        status.textContent =
+          `${sc.frameCount} frames · ${sc.width}×${sc.height} grid · space = play/pause · ← → = step`;
+
+        setFrame(0);
+      }
+
+      // ----------------------------------------------------------------
+      // Build scenario tabs dynamically
+      // ----------------------------------------------------------------
+      const tabsEl = document.getElementById('scenario-tabs');
+      for (const key of Object.keys(SCENARIOS)) {
+        const btn = document.createElement('button');
+        btn.className  = 'tab-btn';
+        btn.dataset.key = key;
+        btn.textContent = SCENARIOS[key].title;
+        btn.addEventListener('click', () => loadScenario(key));
+        tabsEl.appendChild(btn);
+      }
+
+      // ----------------------------------------------------------------
+      // Wire controls
+      // ----------------------------------------------------------------
       btnPlay.addEventListener('click', togglePlay);
 
       document.getElementById('btn-restart').addEventListener('click', () => {
@@ -291,19 +364,16 @@
         setFrame(Number(scrubber.value));
       });
 
-      // Keyboard shortcuts
       document.addEventListener('keydown', e => {
-        if (e.key === ' ')           { e.preventDefault(); togglePlay(); }
-        if (e.key === 'ArrowRight')  setFrame(currentFrame + 1);
-        if (e.key === 'ArrowLeft')   setFrame(currentFrame - 1);
+        if (e.key === ' ')          { e.preventDefault(); togglePlay(); }
+        if (e.key === 'ArrowRight') setFrame(currentFrame + 1);
+        if (e.key === 'ArrowLeft')  setFrame(currentFrame - 1);
       });
 
-      // ------------------------------------------------------------------
-      // Initial render
-      // ------------------------------------------------------------------
-      setFrame(0);
-      status.textContent =
-        `${frameCount} frames · ${width}×${height} grid · space = play/pause · ← → = step`;
+      // ----------------------------------------------------------------
+      // Boot
+      // ----------------------------------------------------------------
+      loadScenario(currentScenario);
     })();
   </script>
 </body>
