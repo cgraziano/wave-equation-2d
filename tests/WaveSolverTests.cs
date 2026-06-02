@@ -182,8 +182,7 @@ public class WaveSolverTests
         for (int t = 0; t < 100; t++) solver.Step();
 
         for (int y = 0; y < size; y++)
-            Assert.True(Math.Abs(solver.Amplitude[y, 25]) < 1e-10,
-                $"Expected wall cell [{y},25] to be ~0, but was {solver.Amplitude[y, 25]}");
+            Assert.Equal(0.0, solver.Amplitude[y, 25]);
     }
 
     // -------------------------------------------------------------------------

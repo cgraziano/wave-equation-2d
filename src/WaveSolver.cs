@@ -121,6 +121,9 @@ public class WaveSolver
         {
             for (int x = 0; x < _width; x++)
             {
+                // Skip hard wall cells — they must always remain zero.
+                if (_r2[y, x] == 0.0) continue;
+
                 double ddx = x - cx;
                 double ddy = y - cy;
                 _curr[y, x] += magnitude * Math.Exp(-(ddx * ddx + ddy * ddy) / twoSigmaSq);
