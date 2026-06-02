@@ -16,7 +16,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release --logger "console;verbosity=normal"
+
   build-and-deploy:
+    name: Build and deploy
+    needs: test   # only runs if the test job succeeds
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
