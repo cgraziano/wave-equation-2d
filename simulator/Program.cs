@@ -12,6 +12,9 @@ Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
 const int TotalSteps    = 400;
 const int FrameInterval = 4;    // save every Nth step → 100 frames
 
+// Declare _sb here so local functions defined later can capture it
+StringBuilder _sb = new();
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
@@ -140,7 +143,6 @@ Console.WriteLine($"Wrote {outputPath}");
 // ---------------------------------------------------------------------------
 // Writer helpers
 // ---------------------------------------------------------------------------
-StringBuilder _sb = new();
 
 void WriteScenario(string key, string title, string description,
                    int width, int height, List<string> frames)
