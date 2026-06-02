@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wave Equation Simulator</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d0d0d;
+      color: #e0e0e0;
+      font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 24px 16px;
+      gap: 20px;
+    }
+
+    h1 {
+      font-size: 1.2rem;
+      font-weight: 400;
+      letter-spacing: 0.12em;
+      color: #aaa;
+      text-transform: uppercase;
+    }
+
+    #canvas-wrap {
+      position: relative;
+      border: 1px solid #2a2a2a;
+      box-shadow: 0 0 40px rgba(80, 160, 255, 0.08);
+    }
+
+    canvas {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    /* colour-bar legend */
+    #legend {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.72rem;
+      color: #666;
+    }
+    #legend-bar {
+      width: 160px;
+      height: 10px;
+      border-radius: 3px;
+      background: linear-gradient(to right, #0060ff, #000, #ff4400);
+    }
+
+    #controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    button {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      color: #ccc;
+      padding: 6px 18px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.85rem;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    button:hover { border-color: #555; color: #fff; }
+    button.active { border-color: #4a90d9; color: #4a90d9; }
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      color: #888;
+    }
+
+    input[type=range] {
+      width: 120px;
+      accent-color: #4a90d9;
+    }
+
+    #scrubber-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      max-width: 520px;
+    }
+    #scrubber-wrap input { flex: 1; }
+
+    #frame-label {
+      font-size: 0.75rem;
+      color: #555;
+      min-width: 70px;
+      text-align: right;
+    }
+
+    #status {
+      font-size: 0.72rem;
+      color: #444;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Wave Equation — Double Slit</h1>
+
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <div id="legend">
+    <span>− amplitude</span>
+    <div id="legend-bar"></div>
+    <span>+ amplitude</span>
+  </div>
+
+  <div id="scrubber-wrap">
+    <input type="range" id="scrubber" min="0" value="0" />
+    <span id="frame-label">frame 0 / 0</span>
+  </div>
+
+  <div id="controls">
+    <button id="btn-play">▶ Play</button>
+    <button id="btn-restart">↺ Restart</button>
+    <label>
+      Speed
+      <input type="range" id="speed" min="1" max="10" value="3" />
+    </label>
+  </div>
+
+  <div id="status">Loading simulation data…</div>
+
+  <script src="frames.js"></script>
+  <script>
+    (() => {
+      // ------------------------------------------------------------------
+      // Sanity-check that frames.js loaded correctly
+      // ------------------------------------------------------------------
+      if (typeof WAVE_DATA === 'undefined') {
+        document.getElementById('status').textContent =
+          'Error: frames.js not found. Run the simulator first.';
+        return;
+      }
+
+      const { width, height, frameCount, frames } = WAVE_DATA;
+
+      // ------------------------------------------------------------------
+      // Canvas setup — scale up for visibility (each grid cell = SCALE px)
+      // ------------------------------------------------------------------
+      const SCALE  = Math.min(5, Math.floor(560 / Math.max(width, height)));
+      const canvas = document.getElementById('canvas');
+      canvas.width  = width  * SCALE;
+      canvas.height = height * SCALE;
+      const ctx = canvas.getContext('2d');
+
+      // Pre-decode all base64 frames into Uint8Arrays once at load time
+      const decoded = frames.map(b64 => {
+        const bin = atob(b64);
+        const buf = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+        return buf;
+      });
+
+      // Pre-build ImageData buffer
+      const imgData = ctx.createImageData(width * SCALE, height * SCALE);
+      const pixels  = imgData.data; // RGBA, length = w*SCALE * h*SCALE * 4
+
+      // ------------------------------------------------------------------
+      // Colour mapping: byte 128 → black, 255 → red, 1 → blue
+      // ------------------------------------------------------------------
+      function byteToRGB(b) {
+        const v = b - 128; // -127 .. +127
+        if (v >= 0) {
+          // positive: black → bright orange-red
+          const t = v / 127;
+          return [Math.round(255 * t), Math.round(80 * t * (1 - t * 0.5)), 0];
+        } else {
+          // negative: black → bright blue
+          const t = -v / 127;
+          return [0, Math.round(80 * t * (1 - t * 0.5)), Math.round(255 * t)];
+        }
+      }
+
+      // Cache all 256 colours up front
+      const colourTable = new Array(256);
+      for (let i = 0; i < 256; i++) colourTable[i] = byteToRGB(i);
+
+      // ------------------------------------------------------------------
+      // Render a single frame index onto the canvas
+      // ------------------------------------------------------------------
+      function renderFrame(frameIdx) {
+        const buf = decoded[frameIdx];
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const [r, g, b] = colourTable[buf[y * width + x]];
+            // Fill SCALE×SCALE block of pixels
+            for (let dy = 0; dy < SCALE; dy++) {
+              for (let dx = 0; dx < SCALE; dx++) {
+                const px = ((y * SCALE + dy) * width * SCALE + (x * SCALE + dx)) * 4;
+                pixels[px]     = r;
+                pixels[px + 1] = g;
+                pixels[px + 2] = b;
+                pixels[px + 3] = 255;
+              }
+            }
+          }
+        }
+        ctx.putImageData(imgData, 0, 0);
+      }
+
+      // ------------------------------------------------------------------
+      // Playback state
+      // ------------------------------------------------------------------
+      let currentFrame = 0;
+      let playing      = false;
+      let lastTime     = 0;
+
+      const scrubber   = document.getElementById('scrubber');
+      const frameLabel = document.getElementById('frame-label');
+      const btnPlay    = document.getElementById('btn-play');
+      const speedSlider = document.getElementById('speed');
+      const status     = document.getElementById('status');
+
+      scrubber.max = frameCount - 1;
+
+      function setFrame(idx) {
+        currentFrame = Math.max(0, Math.min(idx, frameCount - 1));
+        renderFrame(currentFrame);
+        scrubber.value = currentFrame;
+        frameLabel.textContent = `frame ${currentFrame + 1} / ${frameCount}`;
+      }
+
+      function msPerFrame() {
+        // speed 1 → 200ms/frame,  speed 10 → 20ms/frame
+        return 220 - Number(speedSlider.value) * 20;
+      }
+
+      function tick(now) {
+        if (!playing) return;
+        if (now - lastTime >= msPerFrame()) {
+          lastTime = now;
+          if (currentFrame >= frameCount - 1) {
+            playing = false;
+            btnPlay.textContent = '▶ Play';
+            btnPlay.classList.remove('active');
+            return;
+          }
+          setFrame(currentFrame + 1);
+        }
+        requestAnimationFrame(tick);
+      }
+
+      function togglePlay() {
+        playing = !playing;
+        if (playing) {
+          if (currentFrame >= frameCount - 1) setFrame(0);
+          btnPlay.textContent = '⏸ Pause';
+          btnPlay.classList.add('active');
+          lastTime = performance.now();
+          requestAnimationFrame(tick);
+        } else {
+          btnPlay.textContent = '▶ Play';
+          btnPlay.classList.remove('active');
+        }
+      }
+
+      btnPlay.addEventListener('click', togglePlay);
+
+      document.getElementById('btn-restart').addEventListener('click', () => {
+        playing = false;
+        btnPlay.textContent = '▶ Play';
+        btnPlay.classList.remove('active');
+        setFrame(0);
+      });
+
+      scrubber.addEventListener('input', () => {
+        playing = false;
+        btnPlay.textContent = '▶ Play';
+        btnPlay.classList.remove('active');
+        setFrame(Number(scrubber.value));
+      });
+
+      // Keyboard shortcuts
+      document.addEventListener('keydown', e => {
+        if (e.key === ' ')           { e.preventDefault(); togglePlay(); }
+        if (e.key === 'ArrowRight')  setFrame(currentFrame + 1);
+        if (e.key === 'ArrowLeft')   setFrame(currentFrame - 1);
+      });
+
+      // ------------------------------------------------------------------
+      // Initial render
+      // ------------------------------------------------------------------
+      setFrame(0);
+      status.textContent =
+        `${frameCount} frames · ${width}×${height} grid · space = play/pause · ← → = step`;
+    })();
+  </script>
+</body>
+</html>

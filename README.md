@@ -1,6 +1,16 @@
 # wave-equation-2d
 Displays a 2D wave that expands out from a clicked point and interacts with boundaries.
 
+## Live viewer
+
+The wave simulation is automatically built and deployed to GitHub Pages on every push to `main`. Visit:
+
+```
+https://cgraziano.github.io/wave-equation-2d/
+```
+
+Controls: **Space** = play/pause · **← →** = step one frame · scrubber = jump to any frame
+
 ## Running the tests
 
 ### GitHub Actions (recommended)
