@@ -226,7 +226,7 @@
         const { width, height } = sc;
         const scale   = Math.floor(CANVAS_SIZE / Math.max(width, height));
 
-        if (canvas.width !== width * scale || canvas.height !== height * scale) {
+        if (!imgData || canvas.width !== width * scale || canvas.height !== height * scale) {
           canvas.width  = width  * scale;
           canvas.height = height * scale;
           imgData = ctx.createImageData(canvas.width, canvas.height);
